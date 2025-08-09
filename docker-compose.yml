@@ -1,5 +1,15 @@
 
 services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
   # Aplicación principal WPA
   wpa:
     build:
@@ -22,7 +32,7 @@ services:
     depends_on:
       - postgres
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -91,3 +101,4 @@ volumes:
   media_files:
   logs:
   nginx_logs:
+  portainer_data:
