@@ -1,0 +1,10 @@
+services:
+  argocd-server:
+    image: argoproj/argocd:v2.6.15
+    container_name: argocd-server
+    ports:
+      - "8080:8080"
+    command: ["argocd-server", "--insecure"]
+    environment:
+      - ARGOCD_API_SERVER_INSECURE=true
+    restart: unless-stopped
