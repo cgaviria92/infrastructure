@@ -1,0 +1,99 @@
+# Multi-stage build para optimizar imagen de producción
+FROM python:3.12-alpine as builder
+
+# Variables de entorno para construcción
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Instalar dependencias de construcción
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    postgresql-dev \
+    jpeg-dev \
+    zlib-dev \
+    freetype-dev \
+    lcms2-dev \
+    openjpeg-dev \
+    tiff-dev \
+    tk-dev \
+    tcl-dev \
+    harfbuzz-dev \
+    fribidi-dev \
+    libimagequant-dev \
+    libxcb-dev \
+    libpng-dev
+
+# Crear directorio de trabajo
+WORKDIR /app
+
+# Copiar requirements y instalar dependencias
+COPY coreapp/requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --user -r requirements.txt
+
+# Etapa de producción
+FROM python:3.12-alpine as production
+
+# Variables de entorno para producción
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/home/appuser/.local/bin:$PATH" \
+    DJANGO_SETTINGS_MODULE=coreapp.settings
+
+# Instalar dependencias de runtime
+RUN apk add --no-cache \
+    postgresql-client \
+    curl \
+    bash \
+    jpeg \
+    zlib \
+    freetype \
+    lcms2 \
+    openjpeg \
+    tiff \
+    tk \
+    tcl \
+    harfbuzz \
+    fribidi \
+    libimagequant \
+    libxcb \
+    libpng \
+    tzdata
+
+# Crear usuario no-root
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
+
+# Crear directorios necesarios
+RUN mkdir -p /app /app/staticfiles /app/media /app/logs /app/db_data && \
+    chown -R appuser:appgroup /app
+
+# Copiar dependencias de Python desde builder
+COPY --from=builder --chown=appuser:appgroup /root/.local /home/appuser/.local
+
+# Cambiar a usuario no-root
+USER appuser
+
+# Establecer directorio de trabajo
+WORKDIR /app
+
+# Copiar código de la aplicación
+COPY --chown=appuser:appgroup coreapp/ /app/
+
+# Hacer ejecutable el entrypoint
+RUN chmod +x /app/entrypoint.sh
+
+# Exponer puerto
+EXPOSE 8000
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || exit 1
+
+# Comando por defecto
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

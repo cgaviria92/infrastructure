@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  # Aplicación principal WPA
+  wpa:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: wpa-app
+    restart: unless-stopped
+    volumes:
+      - db_data:/app/db_data
+      - static_files:/app/staticfiles
+      - media_files:/app/media
+      - logs:/app/logs
+    environment:
+      - DJANGO_SETTINGS_MODULE=coreapp.settings
+      - DJANGO_ENV=production
+    networks:
+      - wpa-network
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Base de datos PostgreSQL para producción
+  postgres:
+    image: postgres:15-alpine
+    container_name: wpa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wpa_db
+      POSTGRES_USER: wpa_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wpa_secure_password_2025}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - wpa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wpa_user -d wpa_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para cache y sessions
+  redis:
+    image: redis:7-alpine
+    container_name: wpa-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secure_password_2025}
+    volumes:
+      - redis_data:/data
+    networks:
+      - wpa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Nginx como proxy reverso
+  nginx:
+    image: nginx:alpine
+    container_name: wpa-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+      - static_files:/var/www/static:ro
+      - media_files:/var/www/media:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - wpa-network
+    depends_on:
+      - wpa
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Portainer para monitoreo gráfico
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: wpa-portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - wpa-network
+    command: --admin-password-file /tmp/portainer_password
+    environment:
+      - PORTAINER_PASSWORD=${PORTAINER_PASSWORD:-admin123456789}
+
+  # Watchtower para actualizaciones automáticas
+  watchtower:
+    image: containrrr/watchtower
+    container_name: wpa-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=3600
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=true
+    networks:
+      - wpa-network
+
+  # Grafana para dashboards de monitoreo
+  grafana:
+    image: grafana/grafana:latest
+    container_name: wpa-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - wpa-network
+
+  # Prometheus para métricas
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: wpa-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - wpa-network
+
+networks:
+  wpa-network:
+    driver: bridge
+
+volumes:
+  db_data:
+  postgres_data:
+  redis_data:
+  static_files:
+  media_files:
+  logs:
+  nginx_logs:
+  portainer_data:
+  grafana_data:
+  prometheus_data:
