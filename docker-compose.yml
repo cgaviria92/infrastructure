@@ -89,6 +89,19 @@ services:
   # Watchtower para actualizaciones automáticas
 
   # Grafana para dashboards de monitoreo
+  grafana:
+    image: grafana/grafana:latest
+    container_name: wpa-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - wpa-network
 
   # Prometheus para métricas
 
@@ -104,3 +117,4 @@ volumes:
   logs:
   nginx_logs:
   portainer_data:
+  grafana_data:
