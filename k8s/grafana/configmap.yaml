@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-datasources
-data:
-  prometheus.yml: |
-    # Copia aquí el contenido de tu grafana/provisioning/datasources/prometheus.yml
